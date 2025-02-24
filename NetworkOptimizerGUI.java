@@ -1,7 +1,14 @@
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.*;
+import java.util.ArrayList; // Explicitly import ArrayList
+import java.util.HashMap; // Explicitly import HashMap
+import java.util.HashSet; // Explicitly import HashSet
+import java.util.PriorityQueue; // Explicitly import PriorityQueue
+import java.util.List; // Explicitly import List from java.util
+import java.util.Map; // Explicitly import Map
+import java.util.Set; // Explicitly import Set
+import java.util.stream.Collectors; // For Collectors
 
 public class NetworkOptimizerGUI extends JFrame {
     private GraphPanel graphPanel;
@@ -56,8 +63,8 @@ public class NetworkOptimizerGUI extends JFrame {
         });
     }
 
-    // Node class
-    class Node {
+    // Node class (made comparable for PriorityQueue)
+    class Node implements Comparable<Node> {
         int x, y;
         String id;
         boolean isServer;
@@ -67,6 +74,24 @@ public class NetworkOptimizerGUI extends JFrame {
             this.y = y;
             this.id = id;
             this.isServer = isServer;
+        }
+
+        @Override
+        public int compareTo(Node other) {
+            return this.id.compareTo(other.id); // Compare by ID for uniqueness in PriorityQueue
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Node node = (Node) o;
+            return id.equals(node.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return id.hashCode();
         }
     }
 
@@ -85,14 +110,14 @@ public class NetworkOptimizerGUI extends JFrame {
 
     // Graph visualization panel
     class GraphPanel extends JPanel {
-        Node selectedNode = null;
+        private List<Edge> shortestPathEdges = new ArrayList<>(); // To store edges in shortest path for visualization
         
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
-            // Draw edges
+            // Draw edges (highlight shortest path if available)
             for (Edge edge : edges) {
-                g.setColor(Color.BLACK);
+                g.setColor(shortestPathEdges.contains(edge) ? Color.RED : Color.BLACK);
                 g.drawLine(edge.from.x, edge.from.y, edge.to.x, edge.to.y);
                 int midX = (edge.from.x + edge.to.x) / 2;
                 int midY = (edge.from.y + edge.to.y) / 2;
@@ -110,10 +135,19 @@ public class NetworkOptimizerGUI extends JFrame {
         void handleClick(MouseEvent e) {
             repaint();
         }
+        
+        public void setShortestPath(List<Edge> pathEdges) {
+            shortestPathEdges = pathEdges;
+            repaint();
+        }
     }
 
     private void addNode() {
         String id = JOptionPane.showInputDialog("Enter node ID:");
+        if (id == null || id.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Node ID cannot be empty!");
+            return;
+        }
         boolean isServer = JOptionPane.showConfirmDialog(null, 
             "Is this a server?", "Node Type", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
         nodes.add(new Node(100 + nodes.size() * 50, 100, id, isServer));
@@ -132,15 +166,28 @@ public class NetworkOptimizerGUI extends JFrame {
         String to = (String)JOptionPane.showInputDialog(this, "To:", "Add Edge", 
             JOptionPane.PLAIN_MESSAGE, null, nodeIds, nodeIds[1]);
         
-        int cost = Integer.parseInt(JOptionPane.showInputDialog("Enter cost:"));
-        int bandwidth = Integer.parseInt(JOptionPane.showInputDialog("Enter bandwidth:"));
+        if (from == null || to == null || from.trim().isEmpty() || to.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Node IDs cannot be empty!");
+            return;
+        }
         
-        Node fromNode = nodes.stream().filter(n -> n.id.equals(from)).findFirst().get();
-        Node toNode = nodes.stream().filter(n -> n.id.equals(to)).findFirst().get();
-        
-        edges.add(new Edge(fromNode, toNode, cost, bandwidth));
-        updateMetrics();
-        graphPanel.repaint();
+        try {
+            int cost = Integer.parseInt(JOptionPane.showInputDialog("Enter cost:"));
+            int bandwidth = Integer.parseInt(JOptionPane.showInputDialog("Enter bandwidth:"));
+            if (cost < 0 || bandwidth <= 0) {
+                JOptionPane.showMessageDialog(this, "Cost must be non-negative, and bandwidth must be positive!");
+                return;
+            }
+            
+            Node fromNode = nodes.stream().filter(n -> n.id.equals(from)).findFirst().get();
+            Node toNode = nodes.stream().filter(n -> n.id.equals(to)).findFirst().get();
+            
+            edges.add(new Edge(fromNode, toNode, cost, bandwidth));
+            updateMetrics();
+            graphPanel.repaint();
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "Please enter valid numeric values for cost and bandwidth!");
+        }
     }
 
     private void optimizeNetwork() {
@@ -165,8 +212,105 @@ public class NetworkOptimizerGUI extends JFrame {
     }
 
     private void findShortestPath() {
-        // Simple Dijkstra's algorithm implementation could go here
-        JOptionPane.showMessageDialog(this, "Shortest path calculation not fully implemented yet!");
+        if (nodes.size() < 2) {
+            JOptionPane.showMessageDialog(this, "Need at least 2 nodes!");
+            return;
+        }
+        
+        if (edges.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "No connections exist in the network! Add edges first.");
+            return;
+        }
+        
+        String[] nodeIds = nodes.stream().map(n -> n.id).toArray(String[]::new);
+        String from = (String)JOptionPane.showInputDialog(this, "From:", "Shortest Path", 
+            JOptionPane.PLAIN_MESSAGE, null, nodeIds, nodeIds[0]);
+        String to = (String)JOptionPane.showInputDialog(this, "To:", "Shortest Path", 
+            JOptionPane.PLAIN_MESSAGE, null, nodeIds, nodeIds[1]);
+        
+        if (from == null || to == null || from.trim().isEmpty() || to.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Node IDs cannot be empty!");
+            return;
+        }
+        
+        Node start = nodes.stream().filter(n -> n.id.equals(from)).findFirst()
+                         .orElseThrow(() -> new IllegalArgumentException("Source node not found: " + from));
+        Node end = nodes.stream().filter(n -> n.id.equals(to)).findFirst()
+                       .orElseThrow(() -> new IllegalArgumentException("Destination node not found: " + to));
+        
+        // Debug: Print nodes and edges for troubleshooting
+        System.out.println("Finding path from " + start.id + " to " + end.id);
+        System.out.println("Edges: " + edges.size());
+        
+        // Dijkstra's algorithm using latency (1000/bandwidth) as weight
+        Map<Node, Double> distances = new HashMap<>();
+        Map<Node, Node> previous = new HashMap<>();
+        PriorityQueue<Node> pq = new PriorityQueue<>((n1, n2) -> {
+            double d1 = distances.getOrDefault(n1, Double.MAX_VALUE);
+            double d2 = distances.getOrDefault(n2, Double.MAX_VALUE);
+            return Double.compare(d1, d2);
+        });
+        
+        for (Node node : nodes) {
+            distances.put(node, Double.MAX_VALUE);
+        }
+        distances.put(start, 0.0);
+        pq.add(start);
+        
+        while (!pq.isEmpty()) {
+            Node current = pq.poll();
+            System.out.println("Processing node: " + current.id + " with distance: " + distances.get(current));
+            if (current == end) break;
+            
+            for (Edge edge : edges) {
+                Node neighbor = (edge.from == current) ? edge.to : (edge.to == current) ? edge.from : null;
+                if (neighbor != null) {
+                    double latency = 1000.0 / edge.bandwidth;
+                    double newDist = distances.get(current) + latency;
+                    if (newDist < distances.get(neighbor)) {
+                        distances.put(neighbor, newDist);
+                        previous.put(neighbor, current);
+                        pq.add(neighbor);
+                    }
+                }
+            }
+        }
+        
+        // Reconstruct path
+        List<Node> path = new ArrayList<>();
+        Node current = end;
+        while (current != null) {
+            path.add(0, current);
+            current = previous.get(current);
+        }
+        
+        if (path.size() < 2) {
+            JOptionPane.showMessageDialog(this, "No path exists between " + from + " and " + to);
+            return;
+        }
+        
+        // Convert path to edges for visualization
+        List<Edge> pathEdges = new ArrayList<>();
+        for (int i = 0; i < path.size() - 1; i++) {
+            Node fromNode = path.get(i);
+            Node toNode = path.get(i + 1);
+            for (Edge edge : edges) {
+                if ((edge.from == fromNode && edge.to == toNode) || (edge.from == toNode && edge.to == fromNode)) {
+                    pathEdges.add(edge);
+                    break;
+                }
+            }
+        }
+        
+        // Display path and latency
+        String pathStr = path.stream().map(n -> n.id).collect(Collectors.joining(" → "));
+        double totalLatency = distances.get(end);
+        JOptionPane.showMessageDialog(this, 
+            "Shortest path: " + pathStr + "\nLatency: " + String.format("%.2f ms", totalLatency));
+        
+        // Highlight path visually
+        graphPanel.setShortestPath(pathEdges);
+        graphPanel.repaint();
     }
 
     private void updateMetrics() {
