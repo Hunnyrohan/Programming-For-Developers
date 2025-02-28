@@ -1,3 +1,4 @@
+First create the database in pgAdmin and then run the following queries in the SQL editor to get the desired output.
 -- Step 1: Create Table
 CREATE TABLE Tweets (
     user_id INT,
